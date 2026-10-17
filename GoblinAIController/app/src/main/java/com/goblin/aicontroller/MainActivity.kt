@@ -1,4 +1,4 @@
-﻿package com.goblin.aicontroller
+package com.goblin.aicontroller
 
 import android.app.Activity
 import android.content.Context
@@ -13,7 +13,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.goblin.aicontroller.model.ControllerStatus
 import com.goblin.aicontroller.service.OverlayService
 import com.goblin.aicontroller.state.ControllerStateRepository
@@ -41,16 +40,21 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        try {
+            hasOverlayPermission = Settings.canDrawOverlays(this)
+        } catch (_: Exception) {}
+
         handleIntentExtras(intent)
 
         setContent {
             GoblinTheme {
-                val status by ControllerStateRepository.status.collectAsStateWithLifecycle()
-                val metrics by ControllerStateRepository.captureMetrics.collectAsStateWithLifecycle()
-                val simState by ControllerStateRepository.simulationState.collectAsStateWithLifecycle()
-                val decisionsCount by ControllerStateRepository.decisionCount.collectAsStateWithLifecycle()
-                val elapsedSeconds by ControllerStateRepository.elapsedSeconds.collectAsStateWithLifecycle()
-                val logs by ControllerStateRepository.logs.collectAsStateWithLifecycle()
+                val status by ControllerStateRepository.status.collectAsState()
+                val metrics by ControllerStateRepository.captureMetrics.collectAsState()
+                val simState by ControllerStateRepository.simulationState.collectAsState()
+                val decisionsCount by ControllerStateRepository.decisionCount.collectAsState()
+                val elapsedSeconds by ControllerStateRepository.elapsedSeconds.collectAsState()
+                val logs by ControllerStateRepository.logs.collectAsState()
 
                 MainScreen(
                     status = status,
@@ -91,21 +95,27 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkPermissions() {
-        hasOverlayPermission = Settings.canDrawOverlays(this)
-        if (!hasOverlayPermission && ControllerStateRepository.status.value != ControllerStatus.RUNNING) {
-            ControllerStateRepository.setStatus(ControllerStatus.PERMISSION_REQUIRED)
-        } else if (hasOverlayPermission && ControllerStateRepository.status.value == ControllerStatus.PERMISSION_REQUIRED) {
-            ControllerStateRepository.setStatus(ControllerStatus.STOPPED)
-        }
+        try {
+            hasOverlayPermission = Settings.canDrawOverlays(this)
+            if (!hasOverlayPermission && ControllerStateRepository.status.value != ControllerStatus.RUNNING) {
+                ControllerStateRepository.setStatus(ControllerStatus.PERMISSION_REQUIRED)
+            } else if (hasOverlayPermission && ControllerStateRepository.status.value == ControllerStatus.PERMISSION_REQUIRED) {
+                ControllerStateRepository.setStatus(ControllerStatus.STOPPED)
+            }
+        } catch (_: Exception) {}
     }
 
     private fun requestOverlayPermission() {
-        if (!Settings.canDrawOverlays(this)) {
-            val intent = Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:$packageName")
-            )
-            startActivity(intent)
+        try {
+            if (!Settings.canDrawOverlays(this)) {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")
+                )
+                startActivity(intent)
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Cannot open settings: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -116,28 +126,38 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        val mediaProjectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        val captureIntent = mediaProjectionManager.createScreenCaptureIntent()
-        screenCaptureLauncher.launch(captureIntent)
+        try {
+            val mediaProjectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            val captureIntent = mediaProjectionManager.createScreenCaptureIntent()
+            screenCaptureLauncher.launch(captureIntent)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Screen capture error: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun startOverlayService(resultCode: Int, data: Intent) {
-        val serviceIntent = Intent(this, OverlayService::class.java).apply {
-            action = OverlayService.ACTION_START
-            putExtra(OverlayService.EXTRA_RESULT_CODE, resultCode)
-            putExtra(OverlayService.EXTRA_DATA_INTENT, data)
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent)
-        } else {
-            startService(serviceIntent)
+        try {
+            val serviceIntent = Intent(this, OverlayService::class.java).apply {
+                action = OverlayService.ACTION_START
+                putExtra(OverlayService.EXTRA_RESULT_CODE, resultCode)
+                putExtra(OverlayService.EXTRA_DATA_INTENT, data)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Could not start service: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun handleStopFlow() {
-        val stopIntent = Intent(this, OverlayService::class.java).apply {
-            action = OverlayService.ACTION_STOP
-        }
-        startService(stopIntent)
+        try {
+            val stopIntent = Intent(this, OverlayService::class.java).apply {
+                action = OverlayService.ACTION_STOP
+            }
+            startService(stopIntent)
+        } catch (_: Exception) {}
     }
 }
