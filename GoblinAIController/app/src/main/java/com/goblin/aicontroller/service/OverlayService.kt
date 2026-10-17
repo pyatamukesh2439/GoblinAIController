@@ -1,4 +1,4 @@
-﻿package com.goblin.aicontroller.service
+package com.goblin.aicontroller.service
 
 import android.annotation.SuppressLint
 import android.app.Notification
@@ -150,7 +150,7 @@ class OverlayService : Service() {
         var initialX = 0
         var initialY = 0
         var touchStartX = 0f
-        touchStartY = 0f
+        var touchStartY = 0f
 
         container.setOnTouchListener { _, event ->
             when (event.action) {
