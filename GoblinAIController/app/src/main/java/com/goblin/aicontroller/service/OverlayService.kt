@@ -26,6 +26,7 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import com.goblin.aicontroller.MainActivity
@@ -91,6 +92,10 @@ class OverlayService : Service() {
     private var aiSimulationEngine: AiSimulationEngine? = null
     private var autoPilotJob: Job? = null
 
+    // UI elements with live status updates
+    private var btnAiPlay: Button? = null
+    private var tvStatusIndicator: TextView? = null
+
     companion object {
         const val CHANNEL_ID = "goblin_overlay_channel"
         const val NOTIFICATION_ID = 1001
@@ -113,7 +118,7 @@ class OverlayService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
-                startForeground(NOTIFICATION_ID, buildNotification("Goblin Vision Pilot Active"))
+                startForeground(NOTIFICATION_ID, buildNotification("Goblin Vision Pilot Ready"))
                 val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
                 val dataIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     intent.getParcelableExtra(EXTRA_DATA_INTENT, Intent::class.java)
@@ -129,8 +134,7 @@ class OverlayService : Service() {
                 }
 
                 showFloatingOverlay()
-                aiSimulationEngine?.start()
-                ControllerStateRepository.setStatus(ControllerStatus.RUNNING)
+                ControllerStateRepository.setStatus(ControllerStatus.STOPPED)
             }
             ACTION_STOP -> {
                 stopController()
@@ -151,32 +155,46 @@ class OverlayService : Service() {
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = 80
-            y = 150
+            x = 60
+            y = 140
         }
 
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            setPadding(12, 8, 12, 8)
-            setBackgroundColor(Color.parseColor("#EE1B1B1B"))
+            setPadding(14, 10, 14, 10)
+            setBackgroundColor(Color.parseColor("#F0161616"))
             elevation = 16f
         }
 
-        val btnAiPlay = Button(this).apply {
+        // Live Status Indicator Pill
+        val statusIndicator = TextView(this).apply {
+            text = "● OFF"
+            setTextColor(Color.parseColor("#9E9E9E"))
+            textSize = 12f
+            setPadding(8, 0, 14, 0)
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        tvStatusIndicator = statusIndicator
+
+        // Dynamic State Button
+        val playButton = Button(this).apply {
             text = "AI PLAY"
             setBackgroundColor(Color.parseColor("#00C853"))
             setTextColor(Color.WHITE)
+            textSize = 12f
             setOnClickListener {
                 startAccurateVisionPilot()
             }
         }
+        btnAiPlay = playButton
 
         val btnStop = Button(this).apply {
             text = "STOP"
             setBackgroundColor(Color.parseColor("#D50000"))
             setTextColor(Color.WHITE)
+            textSize = 12f
             setOnClickListener {
-                stopController()
+                stopVisionPilotOnly()
             }
         }
 
@@ -184,6 +202,7 @@ class OverlayService : Service() {
             text = "SETTINGS"
             setBackgroundColor(Color.parseColor("#455A64"))
             setTextColor(Color.WHITE)
+            textSize = 12f
             setOnClickListener {
                 val intent = Intent(this@OverlayService, MainActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -193,7 +212,8 @@ class OverlayService : Service() {
             }
         }
 
-        container.addView(btnAiPlay)
+        container.addView(statusIndicator)
+        container.addView(playButton)
         container.addView(btnStop)
         container.addView(btnSettings)
 
@@ -225,14 +245,10 @@ class OverlayService : Service() {
         windowManager.addView(container, layoutParams)
     }
 
-    /**
-     * Vision-Driven Pilot:
-     * Reads ScreenCaptureManager's live target to steer directly into gold/gems and dodge storm clouds
-     */
     private fun startAccurateVisionPilot() {
         val tapService = GoblinAccessibilityService.instance
         if (tapService == null) {
-            Toast.makeText(this, "Enable Goblin Controller in Accessibility Settings!", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Enable Goblin in Accessibility Settings!", Toast.LENGTH_LONG).show()
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
@@ -241,11 +257,23 @@ class OverlayService : Service() {
         }
 
         if (autoPilotJob?.isActive == true) {
-            Toast.makeText(this, "Vision AI Pilot is already active!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "AI is ALREADY ON and active! 🟢", Toast.LENGTH_SHORT).show()
             return
         }
 
-        Toast.makeText(this, "Accurate Vision AI Active!", Toast.LENGTH_SHORT).show()
+        // 1. UPDATE VISUAL INDICATOR TO "ACTIVE 🟢"
+        tvStatusIndicator?.apply {
+            text = "● ACTIVE"
+            setTextColor(Color.parseColor("#00E676")) // Bright Glowing Green
+        }
+
+        // 2. CHANGE BUTTON COLOR & TEXT TO "RUNNING 🟢"
+        btnAiPlay?.apply {
+            text = "RUNNING 🟢"
+            setBackgroundColor(Color.parseColor("#00B0FF")) // Electric Blue
+        }
+
+        Toast.makeText(this, "🟢 Goblin AI Vision Pilot is ON!", Toast.LENGTH_SHORT).show()
         aiSimulationEngine?.start()
         ControllerStateRepository.setStatus(ControllerStatus.RUNNING)
 
@@ -261,20 +289,20 @@ class OverlayService : Service() {
             var currentBalloonX = screenW * 0.5f
 
             while (isActive) {
-                // 1. Launch balloon if at landing dock
+                // Phase 1: Launch balloon if at landing dock
                 tapService.tap(screenW * 0.5f, screenH * 0.55f)
                 delay(300L)
                 tapService.tap(screenW * 0.5f, screenH * 0.55f)
                 delay(500L)
 
-                // 2. Active Flight Phase: Steer using Live Vision Coordinates
+                // Phase 2: Active Flight Phase using Live Vision Coordinates
                 for (flightStep in 0 until 24) {
                     if (!isActive) break
 
                     val vision = ScreenCaptureManager.latestVision
                     val targetX = screenW * vision.targetLaneXFraction
 
-                    // Emergency Evasive Action: Thunderstorm detected!
+                    // Emergency Evasive Action: Thunderstorm detected
                     if (vision.isDangerAhead) {
                         val escapeX = if (currentBalloonX > screenW * 0.5f) screenW * 0.18f else screenW * 0.82f
                         tapService.swipe(currentBalloonX, sweepY, escapeX, sweepY, 180L)
@@ -283,13 +311,12 @@ class OverlayService : Service() {
                         continue
                     }
 
-                    // Steer towards target treasure if detected
+                    // Steer towards target treasure
                     if (Math.abs(targetX - currentBalloonX) > 40f) {
                         tapService.swipe(currentBalloonX, sweepY, targetX, sweepY, 260L)
                         currentBalloonX = targetX
                         delay(300L)
                     } else {
-                        // Small micro-wobble to catch close treasures
                         val microX = (currentBalloonX + (if (currentBalloonX < screenW * 0.5f) 70f else -70f)).coerceIn(screenW * 0.15f, screenW * 0.85f)
                         tapService.swipe(currentBalloonX, sweepY, microX, sweepY, 200L)
                         currentBalloonX = microX
@@ -299,7 +326,7 @@ class OverlayService : Service() {
 
                 if (!isActive) break
 
-                // 3. Post-Flight: Claim rewards and upgrade Rope/Basket
+                // Phase 3: Post-Flight: Claim rewards and upgrade Rope/Basket
                 delay(1200L)
                 tapService.tap(screenW * 0.5f, screenH * 0.72f) // Claim loot
                 delay(500L)
@@ -312,6 +339,26 @@ class OverlayService : Service() {
         }
     }
 
+    // Stops the AI loop and resets UI back to IDLE without destroying the overlay window
+    private fun stopVisionPilotOnly() {
+        autoPilotJob?.cancel()
+        autoPilotJob = null
+        aiSimulationEngine?.stop()
+
+        // RESET BUTTON & STATUS INDICATOR TO OFF
+        tvStatusIndicator?.apply {
+            text = "● OFF"
+            setTextColor(Color.parseColor("#9E9E9E"))
+        }
+        btnAiPlay?.apply {
+            text = "AI PLAY"
+            setBackgroundColor(Color.parseColor("#00C853"))
+        }
+
+        ControllerStateRepository.setStatus(ControllerStatus.STOPPED)
+        Toast.makeText(this, "🛑 Goblin AI Stopped", Toast.LENGTH_SHORT).show()
+    }
+
     private fun removeOverlay() {
         overlayView?.let {
             try {
@@ -322,12 +369,9 @@ class OverlayService : Service() {
     }
 
     private fun stopController() {
-        autoPilotJob?.cancel()
-        autoPilotJob = null
-        aiSimulationEngine?.stop()
+        stopVisionPilotOnly()
         screenCaptureManager?.stopCapture()
         removeOverlay()
-        ControllerStateRepository.setStatus(ControllerStatus.STOPPED)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
