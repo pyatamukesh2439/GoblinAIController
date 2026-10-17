@@ -43,7 +43,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-// 1. Accessibility Service for Real Taps and Swipes
 class GoblinAccessibilityService : AccessibilityService() {
 
     companion object {
@@ -63,7 +62,7 @@ class GoblinAccessibilityService : AccessibilityService() {
         instance = null
     }
 
-    fun tap(x: Float, y: Float, durationMs: Long = 60L) {
+    fun tap(x: Float, y: Float, durationMs: Long = 50L) {
         val path = Path().apply { moveTo(x, y) }
         val gesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs))
@@ -71,7 +70,7 @@ class GoblinAccessibilityService : AccessibilityService() {
         dispatchGesture(gesture, null, null)
     }
 
-    fun swipe(fromX: Float, fromY: Float, toX: Float, toY: Float, durationMs: Long = 380L) {
+    fun swipe(fromX: Float, fromY: Float, toX: Float, toY: Float, durationMs: Long = 260L) {
         val path = Path().apply {
             moveTo(fromX, fromY)
             lineTo(toX, toY)
@@ -83,7 +82,6 @@ class GoblinAccessibilityService : AccessibilityService() {
     }
 }
 
-// 2. Floating Controller and Goblin Heist Steering Engine
 class OverlayService : Service() {
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -91,7 +89,7 @@ class OverlayService : Service() {
     private var overlayView: View? = null
     private var screenCaptureManager: ScreenCaptureManager? = null
     private var aiSimulationEngine: AiSimulationEngine? = null
-    private var autoTapJob: Job? = null
+    private var autoPilotJob: Job? = null
 
     companion object {
         const val CHANNEL_ID = "goblin_overlay_channel"
@@ -115,7 +113,7 @@ class OverlayService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
-                startForeground(NOTIFICATION_ID, buildNotification("Goblin Overlay Active"))
+                startForeground(NOTIFICATION_ID, buildNotification("Goblin Vision Pilot Active"))
                 val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
                 val dataIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     intent.getParcelableExtra(EXTRA_DATA_INTENT, Intent::class.java)
@@ -169,7 +167,7 @@ class OverlayService : Service() {
             setBackgroundColor(Color.parseColor("#00C853"))
             setTextColor(Color.WHITE)
             setOnClickListener {
-                startGoblinHeistPilot()
+                startAccurateVisionPilot()
             }
         }
 
@@ -227,10 +225,14 @@ class OverlayService : Service() {
         windowManager.addView(container, layoutParams)
     }
 
-    private fun startGoblinHeistPilot() {
+    /**
+     * Vision-Driven Pilot:
+     * Reads ScreenCaptureManager's live target to steer directly into gold/gems and dodge storm clouds
+     */
+    private fun startAccurateVisionPilot() {
         val tapService = GoblinAccessibilityService.instance
         if (tapService == null) {
-            Toast.makeText(this, "Enable Goblin in Accessibility Settings to allow auto-control!", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Enable Goblin Controller in Accessibility Settings!", Toast.LENGTH_LONG).show()
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
@@ -238,68 +240,74 @@ class OverlayService : Service() {
             return
         }
 
-        if (autoTapJob?.isActive == true) {
-            Toast.makeText(this, "Auto-Pilot is already running!", Toast.LENGTH_SHORT).show()
+        if (autoPilotJob?.isActive == true) {
+            Toast.makeText(this, "Vision AI Pilot is already active!", Toast.LENGTH_SHORT).show()
             return
         }
 
-        Toast.makeText(this, "Goblin Heist Auto-Pilot Started!", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Accurate Vision AI Active!", Toast.LENGTH_SHORT).show()
         aiSimulationEngine?.start()
         ControllerStateRepository.setStatus(ControllerStatus.RUNNING)
 
-        autoTapJob = serviceScope.launch(Dispatchers.Main) {
+        autoPilotJob = serviceScope.launch(Dispatchers.Main) {
             val metrics = DisplayMetrics()
             @Suppress("DEPRECATION")
             windowManager.defaultDisplay.getRealMetrics(metrics)
 
             val screenW = metrics.widthPixels.toFloat()
             val screenH = metrics.heightPixels.toFloat()
-
             val sweepY = screenH * 0.65f
-            val leftX = screenW * 0.15f
-            val midLeftX = screenW * 0.35f
-            val midRightX = screenW * 0.65f
-            val rightX = screenW * 0.85f
+
+            var currentBalloonX = screenW * 0.5f
 
             while (isActive) {
-                // Phase 1: Tap to Launch the balloon into the sky
+                // 1. Launch balloon if at landing dock
                 tapService.tap(screenW * 0.5f, screenH * 0.55f)
-                delay(350L)
+                delay(300L)
                 tapService.tap(screenW * 0.5f, screenH * 0.55f)
-                delay(600L)
+                delay(500L)
 
-                // Phase 2: Sweep Left & Right across the sky to loot treasures
-                for (step in 0 until 9) {
+                // 2. Active Flight Phase: Steer using Live Vision Coordinates
+                for (flightStep in 0 until 24) {
                     if (!isActive) break
 
-                    // Sweep Left to Right
-                    tapService.swipe(leftX, sweepY, rightX, sweepY, 420L)
-                    delay(480L)
+                    val vision = ScreenCaptureManager.latestVision
+                    val targetX = screenW * vision.targetLaneXFraction
 
-                    // Sweep Right to Left
-                    tapService.swipe(rightX, sweepY, leftX, sweepY, 420L)
-                    delay(480L)
+                    // Emergency Evasive Action: Thunderstorm detected!
+                    if (vision.isDangerAhead) {
+                        val escapeX = if (currentBalloonX > screenW * 0.5f) screenW * 0.18f else screenW * 0.82f
+                        tapService.swipe(currentBalloonX, sweepY, escapeX, sweepY, 180L)
+                        currentBalloonX = escapeX
+                        delay(220L)
+                        continue
+                    }
 
-                    // Quick center adjustment
-                    tapService.swipe(midLeftX, sweepY, midRightX, sweepY, 280L)
-                    delay(320L)
+                    // Steer towards target treasure if detected
+                    if (Math.abs(targetX - currentBalloonX) > 40f) {
+                        tapService.swipe(currentBalloonX, sweepY, targetX, sweepY, 260L)
+                        currentBalloonX = targetX
+                        delay(300L)
+                    } else {
+                        // Small micro-wobble to catch close treasures
+                        val microX = (currentBalloonX + (if (currentBalloonX < screenW * 0.5f) 70f else -70f)).coerceIn(screenW * 0.15f, screenW * 0.85f)
+                        tapService.swipe(currentBalloonX, sweepY, microX, sweepY, 200L)
+                        currentBalloonX = microX
+                        delay(240L)
+                    }
                 }
 
                 if (!isActive) break
 
-                // Phase 3: Round Ended — Claim & Upgrade
+                // 3. Post-Flight: Claim rewards and upgrade Rope/Basket
                 delay(1200L)
-                // Tap center / claim button
-                tapService.tap(screenW * 0.5f, screenH * 0.72f)
-                delay(600L)
+                tapService.tap(screenW * 0.5f, screenH * 0.72f) // Claim loot
+                delay(500L)
 
-                // Tap Upgrade Basket Capacity (Left button)
-                tapService.tap(screenW * 0.28f, screenH * 0.88f)
+                tapService.tap(screenW * 0.28f, screenH * 0.88f) // Upgrade basket
                 delay(400L)
-
-                // Tap Upgrade Rope Length (Right button)
-                tapService.tap(screenW * 0.72f, screenH * 0.88f)
-                delay(600L)
+                tapService.tap(screenW * 0.72f, screenH * 0.88f) // Upgrade rope
+                delay(500L)
             }
         }
     }
@@ -314,8 +322,8 @@ class OverlayService : Service() {
     }
 
     private fun stopController() {
-        autoTapJob?.cancel()
-        autoTapJob = null
+        autoPilotJob?.cancel()
+        autoPilotJob = null
         aiSimulationEngine?.stop()
         screenCaptureManager?.stopCapture()
         removeOverlay()
