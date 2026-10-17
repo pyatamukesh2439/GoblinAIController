@@ -14,12 +14,15 @@ import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.IBinder
+import android.provider.Settings
+import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import com.goblin.aicontroller.MainActivity
 import com.goblin.aicontroller.R
@@ -29,8 +32,12 @@ import com.goblin.aicontroller.model.ControllerStatus
 import com.goblin.aicontroller.state.ControllerStateRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 class OverlayService : Service() {
 
@@ -39,6 +46,7 @@ class OverlayService : Service() {
     private var overlayView: View? = null
     private var screenCaptureManager: ScreenCaptureManager? = null
     private var aiSimulationEngine: AiSimulationEngine? = null
+    private var autoTapJob: Job? = null
 
     companion object {
         const val CHANNEL_ID = "goblin_overlay_channel"
@@ -101,7 +109,7 @@ class OverlayService : Service() {
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = 80
-            y = 200
+            y = 150
         }
 
         val container = LinearLayout(this).apply {
@@ -116,8 +124,7 @@ class OverlayService : Service() {
             setBackgroundColor(Color.parseColor("#00C853"))
             setTextColor(Color.WHITE)
             setOnClickListener {
-                aiSimulationEngine?.start()
-                ControllerStateRepository.setStatus(ControllerStatus.RUNNING)
+                startGoblinHeistPilot()
             }
         }
 
@@ -173,7 +180,83 @@ class OverlayService : Service() {
 
         overlayView = container
         windowManager.addView(container, layoutParams)
-        ControllerStateRepository.addLog("Movable floating controller displayed.")
+    }
+
+    private fun startGoblinHeistPilot() {
+        val tapService = GoblinAccessibilityService.instance
+        if (tapService == null) {
+            Toast.makeText(this, "Please enable Goblin Controller in Accessibility Settings!", Toast.LENGTH_LONG).show()
+            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+            return
+        }
+
+        if (autoTapJob?.isActive == true) {
+            Toast.makeText(this, "Goblin Pilot is already running!", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        Toast.makeText(this, "Goblin Heist Auto-Pilot Started!", Toast.LENGTH_SHORT).show()
+        aiSimulationEngine?.start()
+        ControllerStateRepository.setStatus(ControllerStatus.RUNNING)
+
+        autoTapJob = serviceScope.launch(Dispatchers.Main) {
+            val metrics = DisplayMetrics()
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.getRealMetrics(metrics)
+
+            val screenW = metrics.widthPixels.toFloat()
+            val screenH = metrics.heightPixels.toFloat()
+
+            val sweepY = screenH * 0.65f
+            val leftX = screenW * 0.15f
+            val midLeftX = screenW * 0.35f
+            val midRightX = screenW * 0.65f
+            val rightX = screenW * 0.85f
+
+            while (isActive) {
+                // Phase 1: Tap to Launch the Balloon into the sky
+                tapService.tap(screenW * 0.5f, screenH * 0.55f)
+                delay(350L)
+                tapService.tap(screenW * 0.5f, screenH * 0.55f)
+                delay(600L)
+
+                // Phase 2: Active Flight Looting Loop (Sweeps Left & Right to scoop all gems, coins, chests)
+                for (step in 0 until 9) {
+                    if (!isActive) break
+
+                    // Sweep Left to Right
+                    tapService.swipe(leftX, sweepY, rightX, sweepY, 420L)
+                    delay(480L)
+
+                    // Sweep Right to Left
+                    tapService.swipe(rightX, sweepY, leftX, sweepY, 420L)
+                    delay(480L)
+
+                    // Quick center adjustment sweep
+                    tapService.swipe(midLeftX, sweepY, midRightX, sweepY, 280L)
+                    delay(320L)
+                }
+
+                if (!isActive) break
+
+                // Phase 3: Round Ended — Claim Loot & Auto-Upgrade
+                delay(1200L)
+                // Tap center / claim button
+                tapService.tap(screenW * 0.5f, screenH * 0.72f)
+                delay(600L)
+
+                // Tap Upgrade Basket Capacity (Left Upgrade Button)
+                tapService.tap(screenW * 0.28f, screenH * 0.88f)
+                delay(400L)
+
+                // Tap Upgrade Rope Length (Right Upgrade Button)
+                tapService.tap(screenW * 0.72f, screenH * 0.88f)
+                delay(600L)
+            }
+        }
     }
 
     private fun removeOverlay() {
@@ -182,11 +265,12 @@ class OverlayService : Service() {
                 windowManager.removeView(it)
             } catch (_: Exception) {}
             overlayView = null
-            ControllerStateRepository.addLog("Floating overlay removed.")
         }
     }
 
     private fun stopController() {
+        autoTapJob?.cancel()
+        autoTapJob = null
         aiSimulationEngine?.stop()
         screenCaptureManager?.stopCapture()
         removeOverlay()
