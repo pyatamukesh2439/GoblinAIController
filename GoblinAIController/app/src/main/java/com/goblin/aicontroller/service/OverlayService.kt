@@ -1,5 +1,7 @@
 package com.goblin.aicontroller.service
 
+import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
 import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
@@ -9,6 +11,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.Path
 import android.graphics.PixelFormat
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
@@ -20,6 +23,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.view.accessibility.AccessibilityEvent
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.Toast
@@ -39,6 +43,47 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+// 1. Accessibility Service for Real Taps and Swipes
+class GoblinAccessibilityService : AccessibilityService() {
+
+    companion object {
+        var instance: GoblinAccessibilityService? = null
+    }
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        instance = this
+    }
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    override fun onInterrupt() {}
+
+    override fun onDestroy() {
+        super.onDestroy()
+        instance = null
+    }
+
+    fun tap(x: Float, y: Float, durationMs: Long = 60L) {
+        val path = Path().apply { moveTo(x, y) }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs))
+            .build()
+        dispatchGesture(gesture, null, null)
+    }
+
+    fun swipe(fromX: Float, fromY: Float, toX: Float, toY: Float, durationMs: Long = 380L) {
+        val path = Path().apply {
+            moveTo(fromX, fromY)
+            lineTo(toX, toY)
+        }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs))
+            .build()
+        dispatchGesture(gesture, null, null)
+    }
+}
+
+// 2. Floating Controller and Goblin Heist Steering Engine
 class OverlayService : Service() {
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -185,7 +230,7 @@ class OverlayService : Service() {
     private fun startGoblinHeistPilot() {
         val tapService = GoblinAccessibilityService.instance
         if (tapService == null) {
-            Toast.makeText(this, "Please enable Goblin Controller in Accessibility Settings!", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Enable Goblin in Accessibility Settings to allow auto-control!", Toast.LENGTH_LONG).show()
             val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
@@ -194,7 +239,7 @@ class OverlayService : Service() {
         }
 
         if (autoTapJob?.isActive == true) {
-            Toast.makeText(this, "Goblin Pilot is already running!", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Auto-Pilot is already running!", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -217,13 +262,13 @@ class OverlayService : Service() {
             val rightX = screenW * 0.85f
 
             while (isActive) {
-                // Phase 1: Tap to Launch the Balloon into the sky
+                // Phase 1: Tap to Launch the balloon into the sky
                 tapService.tap(screenW * 0.5f, screenH * 0.55f)
                 delay(350L)
                 tapService.tap(screenW * 0.5f, screenH * 0.55f)
                 delay(600L)
 
-                // Phase 2: Active Flight Looting Loop (Sweeps Left & Right to scoop all gems, coins, chests)
+                // Phase 2: Sweep Left & Right across the sky to loot treasures
                 for (step in 0 until 9) {
                     if (!isActive) break
 
@@ -235,24 +280,24 @@ class OverlayService : Service() {
                     tapService.swipe(rightX, sweepY, leftX, sweepY, 420L)
                     delay(480L)
 
-                    // Quick center adjustment sweep
+                    // Quick center adjustment
                     tapService.swipe(midLeftX, sweepY, midRightX, sweepY, 280L)
                     delay(320L)
                 }
 
                 if (!isActive) break
 
-                // Phase 3: Round Ended — Claim Loot & Auto-Upgrade
+                // Phase 3: Round Ended — Claim & Upgrade
                 delay(1200L)
                 // Tap center / claim button
                 tapService.tap(screenW * 0.5f, screenH * 0.72f)
                 delay(600L)
 
-                // Tap Upgrade Basket Capacity (Left Upgrade Button)
+                // Tap Upgrade Basket Capacity (Left button)
                 tapService.tap(screenW * 0.28f, screenH * 0.88f)
                 delay(400L)
 
-                // Tap Upgrade Rope Length (Right Upgrade Button)
+                // Tap Upgrade Rope Length (Right button)
                 tapService.tap(screenW * 0.72f, screenH * 0.88f)
                 delay(600L)
             }
